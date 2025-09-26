@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: web_demo_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..20}; do
+            pg_isready -h localhost -p 5432 && break
+            sleep 1
+          done
+
+      - name: Run DB migrations (if you have a migrate script)
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/web_demo_test
+        run: |
+          if npm run | grep -q migrate; then
+            npm run migrate
+          else
+            echo "No migrate script found; ensure DB schema is prepared"
+          fi
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/web_demo_test
+          JWT_SECRET: testsecret
+          NODE_ENV: test
+        run: npm test -- --runInBand
